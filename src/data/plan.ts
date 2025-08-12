@@ -1,7 +1,8 @@
 // Auto-derived from make-pdf.py content
 // A 12-week plan with 4 training days per week: Mon, Wed, Sat, Sun
 
-import type { Plan, Week, Day, Block, Exercise, Prescription, ShowIf, BlockType } from '@/types/plan'
+import type { Plan, Week, Day, Exercise, Prescription, ShowIf } from '@/types/plan'
+import { exerciseMedia } from '@/data/media'
 
 // --------------------------
 // Source data from make-pdf.py
@@ -254,7 +255,7 @@ function expandPrescriptions(header: string[], rows: string[][], week: number): 
   if (!row)
     return names.map((n) => ({ name: n, prescription: { type: 'none' as const }, display: '' }))
   const values = row.slice(1)
-  const items = names.map((rawName, i) => {
+  const items: Array<Exercise | null> = names.map((rawName, i) => {
     const cell = (values[i] ?? '').trim()
     const { name, showIf } = parseNameAndRules(rawName)
     // Apply show rules based on current week
@@ -265,7 +266,10 @@ function expandPrescriptions(header: string[], rows: string[][], week: number): 
     // If cell is empty or '-' for this week, hide
     if (cell === '' || cell === '-') return null
     const { prescription, display } = parseCellToPrescription(cell)
-    return { name, prescription, display, showIf }
+    const media = exerciseMedia[name] || undefined
+    const item: Exercise = { name, prescription, showIf, media }
+    if (display) item.display = display
+    return item
   })
   return items.filter((x): x is Exercise => x !== null)
 }
@@ -274,28 +278,37 @@ export function buildPlan(): Plan {
   const weeks: Week[] = []
   // parse warmup/cooldown entries like "Cat-Cow – 6 reps"
   const parseWarmupCooldown = (s: string): Exercise => {
-    const [namePart, right] = s.split(' – ')
+    const [namePartRaw, right] = s.split(' – ')
+    const namePart = (namePartRaw || s).trim()
     let display = right || ''
     // simple patterns like "6 reps" or "30 sec"
     if (right) {
       const mReps = right.match(/^(\d+)\s*reps?$/i)
       if (mReps) {
+        const baseName = namePart.replace(/\s*\([^)]*\)\s*/g, '').trim()
+        const media = exerciseMedia[namePart] || exerciseMedia[baseName] || [{ kind: 'youtubeSearch', url: baseName }]
         return {
           name: namePart,
           prescription: { type: 'reps', sets: 1, reps: parseInt(mReps[1], 10) },
           display,
+          media,
         }
       }
       const mSec = right.match(/^(\d+)\s*s(ec|econds)?$/i)
       if (mSec) {
+        const baseName = namePart.replace(/\s*\([^)]*\)\s*/g, '').trim()
+        const media = exerciseMedia[namePart] || exerciseMedia[baseName] || [{ kind: 'youtubeSearch', url: baseName }]
         return {
           name: namePart,
           prescription: { type: 'hold', sets: 1, seconds: parseInt(mSec[1], 10) },
           display,
+          media,
         }
       }
     }
-    return { name: namePart || s, prescription: { type: 'none' }, display }
+    const baseName = namePart.replace(/\s*\([^)]*\)\s*/g, '').trim()
+    const media = exerciseMedia[namePart] || exerciseMedia[baseName] || [{ kind: 'youtubeSearch', url: baseName }]
+    return { name: namePart, prescription: { type: 'none' }, display, media }
   }
 
   for (let w = 1; w <= 12; w++) {

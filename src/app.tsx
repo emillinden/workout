@@ -1,15 +1,20 @@
 import './app.css'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+// removed header/intro card imports
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { Button } from '@/components/ui/button'
+// removed unused Button
 import { plan } from '@/data/plan'
-import { isDone, toggle, subscribe } from '@/lib/progress'
+import { isDone, toggle, subscribe, setManyExerciseDone } from '@/lib/progress'
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { ChevronLeft, ChevronRight, Check } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react'
+import { CompletionToggle } from '@/components/completion-toggle'
+import { BlockSection } from '@/components/block-section'
+import { ExerciseItem } from '@/components/exercise-item'
+import { isDayDerivedComplete, isWeekDerivedComplete } from '@/lib/derive'
 
 export function App() {
-  const [, setTick] = useState(0)
+  const [tick, setTick] = useState(0)
   const [week, setWeek] = useState(1)
+  const [mediaOpen, setMediaOpen] = useState<Record<string, boolean>>({})
   useEffect(() => {
     // re-render when progress changes
     return subscribe(() => setTick((t) => t + 1))
@@ -18,25 +23,38 @@ export function App() {
   const next = () => setWeek((w) => w + 1) // infinite forward
   const effectiveWeek = useMemo(() => Math.min(week, plan.meta.durationWeeks), [week])
   const current = plan.weeks[effectiveWeek - 1]
+
+  // Compute derived completion
+  // helper available if needed
+  // const isExerciseDone = (w: number, d: number, name: string) => isDone('exercise', w, d, name)
+  const isDayExplicitDone = (w: number, d: number) => isDone('day', w, d)
+  const isDayDerivedDone = (w: number, dIndex: number) => {
+    const day = plan.weeks[w - 1]?.days.find((d) => d.dayIndex === dIndex)
+    if (!day) return false
+    return isDayDerivedComplete(w, day)
+  }
+  const isDayDoneTotal = (w: number, dIndex: number) => isDayExplicitDone(w, dIndex) || isDayDerivedDone(w, dIndex)
+  const isWeekExplicitDone = (w: number) => isDone('week', w)
+  const isWeekDerivedDone = (w: number) => isWeekDerivedComplete(w, plan)
+  const isWeekDoneTotal = (w: number) => isWeekExplicitDone(w) || isWeekDerivedDone(w)
+
+  const autoWeek = useMemo(() => {
+    const total = plan.meta.durationWeeks
+    for (let w = 1; w <= total; w++) {
+      if (!isWeekDoneTotal(w)) return w
+    }
+    return total
+  }, [tick, plan.meta.durationWeeks])
+
+  // Auto-select current week based on completion
+  useEffect(() => {
+    if (week !== autoWeek) setWeek(autoWeek)
+  }, [autoWeek])
+
+  // moved to lib/derive
   return (
-    <div class="space-y-8">
-      <header class="py-6">
-        <h1 class="text-3xl font-bold">Workout</h1>
-        <p class="text-muted-foreground">12-week rehab → strength guide</p>
-      </header>
-
-      <Card class="mt-2">
-        <CardHeader>
-          <CardTitle>Getting Started</CardTitle>
-          <CardDescription>Warm-up, main work, and cooldown each day.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p class="mb-2">Data loaded for {plan.meta.durationWeeks} weeks.</p>
-          <Button onClick={() => setWeek(1)}>Start Week 1</Button>
-        </CardContent>
-      </Card>
-
-      <div class="mt-6 space-y-4">
+    <div class="space-y-6">
+      <div class="mt-2 space-y-4">
         <div class="flex items-center justify-center gap-4">
           <button
             class="inline-flex items-center gap-1 rounded-md border px-3 py-1 text-sm disabled:opacity-50"
@@ -47,7 +65,25 @@ export function App() {
             <ChevronLeft class="h-4 w-4" />
             Prev
           </button>
-          <div class="text-sm font-medium">Week {week}{week > plan.meta.durationWeeks ? ` (using week ${plan.meta.durationWeeks})` : ''}</div>
+          <div class="flex items-center gap-2 text-sm font-medium">
+            <CompletionToggle
+              pressed={isWeekDoneTotal(effectiveWeek)}
+              ariaLabel={isWeekDoneTotal(effectiveWeek) ? 'Mark week as not done' : 'Mark week as done'}
+              size="xl"
+              stopPropagation={false}
+              onToggle={() => {
+                const willBeDone = !isWeekDerivedDone(effectiveWeek)
+                const days = plan.weeks[effectiveWeek - 1]?.days ?? []
+                const entries = days.flatMap((d) => d.blocks.flatMap((b) => b.items.map((it) => ({
+                  week: effectiveWeek,
+                  day: d.dayIndex,
+                  exerciseName: it.name,
+                }))))
+                setManyExerciseDone(entries, willBeDone)
+              }}
+            />
+            <span>Week {effectiveWeek}</span>
+          </div>
           <button
             class="inline-flex items-center gap-1 rounded-md border px-3 py-1 text-sm"
             onClick={next}
@@ -60,70 +96,66 @@ export function App() {
 
         <Accordion type="single" collapsible>
           {current.days.map((day) => (
-            <AccordionItem key={day.dayIndex} value={`day-${day.dayIndex}`}>
+                <AccordionItem key={day.dayIndex} value={`day-${day.dayIndex}`}>
               <AccordionTrigger>
-                Day {day.dayIndex}: {day.name}
+                <div class="flex w-full items-center justify-between gap-3 pr-2">
+                  <div class="flex items-center gap-2 truncate">
+                    <CompletionToggle
+                      pressed={isDayDoneTotal(effectiveWeek, day.dayIndex)}
+                      ariaLabel={isDayDoneTotal(effectiveWeek, day.dayIndex) ? 'Mark day as not done' : 'Mark day as done'}
+                      size="xl"
+                      onToggle={() => {
+                        const willBeDone = !isDayDerivedDone(effectiveWeek, day.dayIndex)
+                        const entries = day.blocks.flatMap((b) => b.items.map((it) => ({
+                          week: effectiveWeek,
+                          day: day.dayIndex,
+                          exerciseName: it.name,
+                        })))
+                        setManyExerciseDone(entries, willBeDone)
+                      }}
+                    />
+                    <span>
+                      Day {day.dayIndex}: {day.name}
+                    </span>
+                  </div>
+                </div>
               </AccordionTrigger>
               <AccordionContent>
                 <div class="space-y-6">
                   {day.blocks.map((block) => (
                     <div key={block.title}>
-                      <h4 class="text-sm font-semibold text-muted-foreground">{block.title}</h4>
-                      <ul class="mt-2 grid gap-1 md:grid-cols-2">
-                        {block.items.map((it) => {
-                          const done = isDone('exercise', week, day.dayIndex, it.name)
+                      <BlockSection
+                        week={effectiveWeek}
+                        dayIndex={day.dayIndex}
+                        block={block}
+                        onToggleBlock={(willBeDone) => {
+                          const entries = block.items.map((it) => ({
+                            week: effectiveWeek,
+                            day: day.dayIndex,
+                            exerciseName: it.name,
+                          }))
+                          setManyExerciseDone(entries, willBeDone)
+                        }}
+                      />
+                      <ul class="mt-2 grid gap-2 sm:grid-cols-2">
+                         {block.items.map((it) => {
+                           const done = isDone('exercise', effectiveWeek, day.dayIndex, it.name)
 
-                          const chips: string[] = []
-                          const p = it.prescription
-                          if (p) {
-                            if (p.type === 'reps') {
-                              const parts = [] as string[]
-                              if (p.sets) parts.push(String(p.sets))
-                              if (p.reps) parts.push(String(p.reps))
-                              if (parts.length) chips.push(parts.join('×'))
-                              if (p.tempoSeconds) chips.push(`${p.tempoSeconds}s tempo`)
-                            } else if (p.type === 'time' || p.type === 'hold') {
-                              const prefix = p.sets ? `${p.sets}×` : ''
-                              if (p.seconds) chips.push(`${prefix}${p.seconds}s`)
-                            } else if (p.type === 'steps') {
-                              if (p.sets && p.steps) chips.push(`${p.sets}×${p.steps} steps`)
-                            } else if (p.type === 'distance') {
-                              if (p.distanceMeters) chips.push(`${p.distanceMeters}m`)
-                              if (p.pace) chips.push(p.pace)
-                            } else if (p.type === 'intensity') {
-                              if (typeof p.rpe === 'number') chips.push(`RPE ${p.rpe}`)
-                              if (typeof p.heartRatePercent === 'number') chips.push(`HR ${p.heartRatePercent}%`)
-                              if (typeof p.loadPercent === 'number') chips.push(`${p.loadPercent}% 1RM`)
-                            }
-                            if (p.detail && chips.length === 0) chips.push(p.detail)
-                          }
-
-                          return (
-                            <li key={it.name} class="flex items-start justify-between gap-3 py-1">
-                              <div class="min-w-0">
-                                <div class={done ? 'text-sm line-through text-muted-foreground' : 'text-sm'}>{it.name}</div>
-                                {chips.length > 0 && (
-                                  <div class="mt-1 flex flex-wrap gap-1">
-                                    {chips.map((c, idx) => (
-                                      <span key={idx} class="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                                        {c}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                              <button
-                                class={done ? 'inline-flex whitespace-nowrap items-center gap-1 text-xs text-green-600' : 'inline-flex whitespace-nowrap items-center gap-1 text-xs text-muted-foreground hover:text-foreground'}
-                                onClick={() => toggle('exercise', week, day.dayIndex, it.name)}
-                                aria-pressed={done}
-                              >
-                                {done ? (<>
-                                  <Check class="h-3.5 w-3.5" /> Done
-                                </>) : 'Mark'}
-                              </button>
-                            </li>
-                          )
-                        })}
+                           const mediaKey = `${effectiveWeek}:${day.dayIndex}:${it.name}`
+                           const open = !!mediaOpen[mediaKey]
+                           return (
+                             <ExerciseItem
+                               key={it.name}
+                               week={effectiveWeek}
+                               dayIndex={day.dayIndex}
+                               exercise={it}
+                               done={done}
+                               onToggle={() => toggle('exercise', effectiveWeek, day.dayIndex, it.name)}
+                               mediaOpen={open}
+                               setMediaOpen={(v) => setMediaOpen((prev) => ({ ...prev, [mediaKey]: v }))}
+                             />
+                           )
+                         })}
                       </ul>
                     </div>
                   ))}
@@ -132,6 +164,19 @@ export function App() {
             </AccordionItem>
           ))}
         </Accordion>
+
+        <div class="pt-4">
+          <button
+            class="inline-flex items-center gap-2 rounded-md bg-destructive px-3 py-2 text-sm text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2 ring-offset-background"
+            onClick={() => {
+              if (confirm('Clear all progress and start over?')) {
+                import('@/lib/progress').then((m) => m.resetAllProgress())
+              }
+            }}
+          >
+            <RotateCcw class="h-4 w-4" /> Reset progress
+          </button>
+        </div>
       </div>
     </div>
   )

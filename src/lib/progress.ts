@@ -52,3 +52,27 @@ export function toggle(kind: CompletionKind, week: number, day?: number, exercis
   notify()
 }
 
+export function resetAllProgress() {
+  state.done = {}
+  notify()
+}
+
+// Set a specific exercise completion state explicitly
+export function setExerciseDone(week: number, day: number, exerciseName: string, value: boolean) {
+  const k = keyFor('exercise', week, day, exerciseName)
+  state.done[k] = value
+  notify()
+}
+
+// Batch-set multiple exercises and notify once
+export function setManyExerciseDone(
+  entries: Array<{ week: number; day: number; exerciseName: string }>,
+  value: boolean
+) {
+  for (const { week, day, exerciseName } of entries) {
+    const k = keyFor('exercise', week, day, exerciseName)
+    state.done[k] = value
+  }
+  notify()
+}
+

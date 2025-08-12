@@ -42,6 +42,13 @@ export interface ExerciseMeta {
   tags?: string[]
 }
 
+export interface MediaAsset {
+  kind: 'image' | 'video' | 'youtube' | 'youtubeSearch'
+  url: string
+  title?: string
+  thumbnailUrl?: string
+}
+
 export interface Exercise {
   id?: string
   name: string
@@ -50,6 +57,7 @@ export interface Exercise {
   notes?: string
   showIf?: ShowIf
   meta?: ExerciseMeta
+  media?: MediaAsset[]
 }
 
 export interface Block {
